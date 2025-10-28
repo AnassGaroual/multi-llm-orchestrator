@@ -1,4 +1,4 @@
-package com.multi.orchestrator;
+package com.multi.boot;
 
 import org.springframework.boot.SpringApplication;
 

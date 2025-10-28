@@ -18,6 +18,9 @@ configurations {
     compileOnly {
         extendsFrom annotationProcessor
     }
+    testRuntimeClasspath {
+    exclude group: 'org.springframework.ai'   // nukes every Spring AI autoconfig in tests
+    }
 }
 
 repositories {
@@ -58,4 +61,21 @@ dependencyManagement {
 
 tasks.named('test') {
     useJUnitPlatform()
+  doFirst {
+    def agent = configurations.testRuntimeClasspath.resolve().find { f ->
+      f.name.startsWith('byte-buddy-agent') && f.name.endsWith('.jar')
+    }
+    if (!agent) {
+      throw new GradleException("byte-buddy-agent.jar introuvable dans testRuntimeClasspath (via spring-boot-starter-test).")
+    }
+    jvmArgs("-javaagent:${agent.absolutePath}")
+  }
 }
+
+tasks.withType(Test).configureEach {
+  jvmArgs "-Xshare:off"
+}
+tasks.withType(JavaExec).configureEach {
+  jvmArgs "-Xshare:off"
+}
+

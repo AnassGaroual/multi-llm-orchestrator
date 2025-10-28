@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    image: mlo/app:dev
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    healthcheck:
+      test: ["CMD-SHELL","wget -qO- http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 20s
+      timeout: 5s
+      retries: 5

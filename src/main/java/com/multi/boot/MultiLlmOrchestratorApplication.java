@@ -1,9 +1,9 @@
-package com.multi.orchestrator;
+package com.multi.boot;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"m.b", "com.multi"})
 public class MultiLlmOrchestratorApplication {
 
     public static void main(String[] args) {
