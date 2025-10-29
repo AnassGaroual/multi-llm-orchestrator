@@ -1,0 +1,110 @@
+name: 🌙 Nightly Security Scan
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Run at 2 AM UTC daily
+  workflow_dispatch:  # Allow manual trigger
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+
+jobs:
+  comprehensive-scan:
+    name: 🔒 Comprehensive Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: ☕ Setup JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+
+      - name: 🔧 Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      # Full dependency check (slower but thorough)
+      - name: 🔍 OWASP Dependency Check (Full)
+        run: ./gradlew dependencyCheckAnalyze --no-daemon
+        continue-on-error: true
+
+      # Trivy container scanning (if Docker image exists)
+      - name: 🐋 Trivy Container Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+        continue-on-error: true
+
+      - name: 📤 Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
+
+      # Create issue if vulnerabilities found
+      - name: 🚨 Create Security Issue
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = '🚨 Security Vulnerabilities Detected';
+            const body = `## Security Scan Results
+
+            The nightly security scan has detected vulnerabilities.
+
+            **Action Required:**
+            - Review the [security reports](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+            - Update vulnerable dependencies
+            - Run \`./gradlew dependencyCheckAnalyze\` locally
+
+            **Scan Date:** ${new Date().toISOString()}
+            **Workflow Run:** [#${context.runNumber}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
+
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'security'
+            });
+
+            const existingIssue = issues.data.find(i => i.title === title);
+
+            if (!existingIssue) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['security', 'automated']
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existingIssue.number,
+                body: `⚠️ Security scan still detecting vulnerabilities.\n\n${body}`
+              });
+            }
+
+      - name: 📤 Upload Reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: nightly-security-reports
+          path: |
+            build/reports/dependency-check-report.html
+            trivy-results.sarif
+          retention-days: 90
