@@ -1,0 +1,35 @@
+#!/bin/sh
+# Pre-push hook - Verify formatting before push
+# Prevents pushing improperly formatted code
+
+set -e
+
+# Skip in CI environments
+if [ -n "$CI" ] || [ -n "$GITHUB_ACTIONS" ]; then
+  echo "⏭️  Skipping hook in CI environment"
+  exit 0
+fi
+
+echo "🔍 Running Spotless check..."
+
+# Detect OS and use appropriate Gradle wrapper
+if [ -f "gradlew.bat" ] && [ -n "$WINDIR" ]; then
+  GRADLE_CMD="./gradlew.bat"
+else
+  GRADLE_CMD="./gradlew"
+fi
+
+# Run check and capture exit code
+if ! $GRADLE_CMD spotlessCheck --quiet 2>&1 | grep -v "deprecated\|configuration cache"; then
+  EXIT_CODE=$?
+  if [ $EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo "❌ Code formatting check failed!"
+    echo "💡 Fix with: $GRADLE_CMD spotlessApply"
+    echo "💡 Skip hook: git push --no-verify"
+    exit 1
+  fi
+fi
+
+echo "✅ Formatting verified"
+exit 0
