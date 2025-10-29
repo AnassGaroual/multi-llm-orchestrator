@@ -1,0 +1,81 @@
+name: 🔧 Auto-Fix Formatting
+
+on:
+  pull_request:
+    types: [ labeled, synchronize ]
+  issue_comment:
+    types: [ created ]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  autofix:
+    name: Apply Spotless Formatting
+    runs-on: ubuntu-latest
+    # Trigger on label OR comment with /format
+    if: |
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'spotless-fix')) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/format'))
+
+    steps:
+      - name: 📥 Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.event.issue.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: ☕ Setup JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+
+      - name: 🎨 Apply Spotless
+        run: ./gradlew spotlessApply --no-daemon
+
+      - name: 📤 Commit & Push
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "style: apply Spotless formatting [skip ci]"
+            git push
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🏷️ Remove label (if triggered by label)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'spotless-fix')
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              name: 'spotless-fix'
+            });
+
+      - name: 💬 Comment on PR
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const changed = '${{ steps.commit.outputs.changed }}' === 'true';
+            const body = changed
+              ? '✅ Spotless formatting has been automatically applied!'
+              : '✅ No formatting changes needed - code is already formatted correctly!';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
