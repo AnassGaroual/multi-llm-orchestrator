@@ -1,7 +1,11 @@
 plugins {
-    id 'java'
-    id 'org.springframework.boot' version '3.5.7'
-    id 'io.spring.dependency-management' version '1.1.7'
+  id 'java'
+  id 'org.springframework.boot' version '3.5.7'
+  id 'io.spring.dependency-management' version '1.1.7'
+  id 'com.diffplug.spotless' version '8.0.0'
+  id 'jacoco'
+  id 'org.owasp.dependencycheck' version '11.2.0'
+  id 'me.champeau.jmh' version '0.7.2'  // JMH benchmarks
 }
 
 group = 'com.multi'
@@ -9,73 +13,244 @@ version = '0.0.1-SNAPSHOT'
 description = 'multi-llm-orchestrator'
 
 java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(25)
-    }
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(25)
+  }
 }
 
 configurations {
-    compileOnly {
-        extendsFrom annotationProcessor
-    }
-    testRuntimeClasspath {
-    exclude group: 'org.springframework.ai'   // nukes every Spring AI autoconfig in tests
-    }
+  compileOnly {
+    extendsFrom annotationProcessor
+  }
+  testRuntimeClasspath {
+    exclude group: 'org.springframework.ai'
+  }
 }
 
 repositories {
-    mavenCentral()
+  mavenCentral()
 }
 
 ext {
-    set('springAiVersion', "1.0.3")
+  set('springAiVersion', "1.0.3")
 }
 
 dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    implementation 'org.springframework.boot:spring-boot-starter-data-jdbc'
-    implementation 'org.springframework.boot:spring-boot-starter-security'
-    implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-    implementation 'org.springframework.ai:spring-ai-starter-model-chat-memory'
-    implementation 'org.springframework.ai:spring-ai-starter-model-mistral-ai'
-    implementation 'org.springframework.ai:spring-ai-starter-model-ollama'
-    implementation 'org.springframework.ai:spring-ai-starter-model-openai'
-    compileOnly 'org.projectlombok:lombok'
-    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
-    annotationProcessor 'org.projectlombok:lombok'
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
-    testImplementation 'org.springframework.ai:spring-ai-spring-boot-testcontainers'
-    testImplementation 'org.springframework.security:spring-security-test'
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:ollama'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+  implementation 'org.springframework.boot:spring-boot-starter-actuator'
+  implementation 'org.springframework.boot:spring-boot-starter-data-jdbc'
+  implementation 'org.springframework.boot:spring-boot-starter-security'
+  implementation 'org.springframework.boot:spring-boot-starter-validation'
+  implementation 'org.springframework.boot:spring-boot-starter-web'
+  implementation 'org.springframework.ai:spring-ai-starter-model-chat-memory'
+  implementation 'org.springframework.ai:spring-ai-starter-model-mistral-ai'
+  implementation 'org.springframework.ai:spring-ai-starter-model-ollama'
+  implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+
+  compileOnly 'org.projectlombok:lombok'
+  annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+  annotationProcessor 'org.projectlombok:lombok'
+
+  testImplementation 'org.springframework.boot:spring-boot-starter-test'
+  testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+  testImplementation 'org.springframework.ai:spring-ai-spring-boot-testcontainers'
+  testImplementation 'org.springframework.security:spring-security-test'
+  testImplementation 'org.testcontainers:junit-jupiter'
+  testImplementation 'org.testcontainers:ollama'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+  // JMH benchmarking
+  jmh 'org.openjdk.jmh:jmh-core:1.37'
+  jmh 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
 }
 
 dependencyManagement {
-    imports {
-        mavenBom "org.springframework.ai:spring-ai-bom:${springAiVersion}"
-    }
+  imports {
+    mavenBom "org.springframework.ai:spring-ai-bom:${springAiVersion}"
+  }
 }
 
+// ============================================
+// Spotless Configuration
+// ============================================
+
+spotless {
+  lineEndings 'UNIX'
+
+  if (System.getenv('CI') == 'true') {
+    ratchetFrom 'origin/main'
+  }
+
+  java {
+    toggleOffOn()
+    importOrder '\\#', 'java', 'jakarta', 'javax', 'org', 'com', ''
+    googleJavaFormat('1.28.0')
+    removeUnusedImports()
+    trimTrailingWhitespace()
+    endWithNewline()
+
+    licenseHeader '''/*
+ * Copyright (c) 2025 Anass Garoual
+ * Licensed under the MIT License.
+ */'''
+
+    target 'src/**/*.java'
+    targetExclude 'build/**/*.java', 'src/jmh/**/*.java'
+  }
+
+  format 'misc', {
+    target '*.gradle', '*.gradle.kts', '*.yaml', '*.yml', '*.json', '*.properties', '*.xml'
+    trimTrailingWhitespace()
+    endWithNewline()
+    leadingTabsToSpaces(2)
+  }
+
+  format 'markdown', {
+    target '*.md', 'docs/**/*.md'
+    endWithNewline()
+  }
+}
+
+// ============================================
+// Git Hooks Installation
+// ============================================
+
+tasks.register('installGitHooks', Exec) {
+  description = 'Install Git hooks from .githooks/'
+  group = 'git'
+
+  onlyIf {
+    def hooksPath = providers.exec {
+      commandLine 'git', 'config', 'core.hooksPath'
+    }.standardOutput.asText.get().trim()
+    hooksPath != '.githooks'
+  }
+
+  doFirst {
+    logger.lifecycle('📦 Installing Git hooks...')
+  }
+
+  commandLine 'sh', './install-hooks.sh'
+  ignoreExitValue = true
+
+  doLast {
+    logger.lifecycle('✅ Git hooks installed')
+  }
+}
+
+// ============================================
+// Testing
+// ============================================
+
 tasks.named('test') {
-    useJUnitPlatform()
+  useJUnitPlatform()
+
   doFirst {
     def agent = configurations.testRuntimeClasspath.resolve().find { f ->
       f.name.startsWith('byte-buddy-agent') && f.name.endsWith('.jar')
     }
     if (!agent) {
-      throw new GradleException("byte-buddy-agent.jar introuvable dans testRuntimeClasspath (via spring-boot-starter-test).")
+      throw new GradleException("byte-buddy-agent.jar not found")
     }
     jvmArgs("-javaagent:${agent.absolutePath}")
   }
+
+  jvmArgs "-Xshare:off"
+  finalizedBy jacocoTestReport
 }
 
 tasks.withType(Test).configureEach {
   jvmArgs "-Xshare:off"
 }
+
 tasks.withType(JavaExec).configureEach {
   jvmArgs "-Xshare:off"
 }
 
+// ============================================
+// Code Coverage
+// ============================================
+
+jacoco {
+  toolVersion = "0.8.12"
+}
+
+jacocoTestReport {
+  dependsOn test
+
+  reports {
+    xml.required = true
+    html.required = true
+  }
+
+  afterEvaluate {
+    classDirectories.setFrom(files(classDirectories.files.collect {
+      fileTree(dir: it, exclude: [
+        '**/config/**',
+        '**/boot/**',
+        '**/*Application.*',
+        '**/adapters/infra/**'
+      ])
+    }))
+  }
+}
+
+jacocoTestCoverageVerification {
+  violationRules {
+    rule {
+      limit {
+        minimum = 0.70  // 70% coverage minimum
+      }
+    }
+  }
+}
+
+// ============================================
+// OWASP Dependency Check
+// ============================================
+
+dependencyCheck {
+  format = 'HTML'
+  suppressionFile = file('.github/dependency-check-suppressions.xml')
+  failBuildOnCVSS = 7.0
+
+  analyzers {
+    assemblyEnabled = false
+    nugetconfEnabled = false
+    nodeEnabled = false
+  }
+}
+
+// ============================================
+// JMH Benchmarks
+// ============================================
+
+jmh {
+  iterations = 3
+  fork = 2
+  warmupIterations = 2
+  resultFormat = 'JSON'
+}
+
+// ============================================
+// Task Dependencies
+// ============================================
+
+tasks.named('build') {
+  dependsOn 'installGitHooks'
+}
+
+tasks.named('check') {
+  dependsOn 'spotlessCheck', 'jacocoTestCoverageVerification'
+}
+
+tasks.register('securityCheck') {
+  dependsOn 'dependencyCheckAnalyze'
+  description = 'Run security vulnerability scan'
+  group = 'verification'
+}
+
+tasks.register('fullCheck') {
+  dependsOn 'clean', 'check', 'securityCheck'
+  description = 'Run all quality checks'
+  group = 'verification'
+}
