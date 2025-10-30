@@ -78,8 +78,22 @@ dependencyManagement {
 spotless {
   lineEndings = 'UNIX'
 
+  // Conditional ratchetFrom: only if origin/main exists and not on main branch
   if (System.getenv('CI') == 'true') {
-    ratchetFrom = 'origin/main'
+    def currentBranch = System.getenv('GITHUB_REF_NAME') ?: 'unknown'
+    if (currentBranch != 'main') {
+      try {
+        def result = providers.exec {
+          commandLine('git', 'rev-parse', '--verify', 'origin/main')
+          ignoreExitValue = true
+        }
+        if (result.standardOutput.asText.get().trim()) {
+          ratchetFrom = 'origin/main'
+        }
+      } catch (Exception ignored) {
+        // origin/main doesn't exist, skip ratchetFrom
+      }
+    }
   }
 
   java {
@@ -103,7 +117,7 @@ spotless {
     target('*.gradle', '*.gradle.kts', '*.yaml', '*.yml', '*.json', '*.properties', '*.xml')
     trimTrailingWhitespace()
     endWithNewline()
-    indentWithSpaces(2)
+    leadingTabsToSpaces(2)
   }
 
   format('markdown') {
@@ -111,7 +125,6 @@ spotless {
     endWithNewline()
   }
 }
-
 // ============================================
 // Git Hooks Installation
 // ============================================
@@ -213,6 +226,7 @@ jacocoTestCoverageVerification {
 dependencyCheck {
   format = 'HTML'
 
+  // Optional suppression file (only if exists)
   def suppressFile = file('.github/dependency-check-suppressions.xml')
   if (suppressFile.exists()) {
     suppressionFile = suppressFile
@@ -220,11 +234,20 @@ dependencyCheck {
 
   failBuildOnCVSS = 7.0
 
+  // Disable slow analyzers
   analyzers {
     assemblyEnabled = false
     nugetconfEnabled = false
     nodeEnabled = false
   }
+
+  // Cache CVE database for faster subsequent runs
+  data {
+    directory = "${rootProject.projectDir}/.gradle/dependency-check-data"
+  }
+
+  // Skip in CI - run only in nightly workflow to avoid timeouts
+  skip = System.getenv('CI') == 'true'
 }
 
 // ============================================

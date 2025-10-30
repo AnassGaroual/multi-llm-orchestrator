@@ -48,3 +48,6 @@ out/
 .env.*
 !.env.example
 secrets/
+
+# OWASP Dependency Check cache
+.gradle/dependency-check-data/
