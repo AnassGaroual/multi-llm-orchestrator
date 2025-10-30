@@ -1,41 +1,406 @@
-name: Build & Push Docker (JDK25 LTS)
+name: 🐋 Docker Build & Security
+
 on:
-  push:
+  # Triggered AFTER successful CI workflow completion
+  workflow_run:
+    workflows: ["CI"]
     branches: [ main ]
+    types: [ completed ]
+
+  # Manual trigger for releases
+  push:
     tags: [ "v*" ]
+
+  # Manual dispatch
+  workflow_dispatch:
+
 permissions:
   contents: read
   packages: write
   id-token: write
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  docker:
+  # Gate: Verify CI workflow succeeded before building Docker image
+  verify-ci:
+    name: 🔍 Verify CI Success
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_run'
+
     steps:
-      - uses: actions/checkout@v5
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - name: Check CI workflow conclusion
+        if: github.event.workflow_run.conclusion != 'success'
+        run: |
+          echo "❌ CI workflow failed or was cancelled"
+          echo "Conclusion: ${{ github.event.workflow_run.conclusion }}"
+          exit 1
+
+      - name: CI passed successfully
+        run: echo "✅ CI workflow passed - proceeding with Docker build"
+
+  # Stage 1: Build multi-arch image with security scanning
+  build-scan:
+    name: 🔨 Build & Security Scan
+    runs-on: ubuntu-latest
+    needs: verify-ci
+    if: |
+      always() &&
+      (needs.verify-ci.result == 'success' || github.event_name == 'push')
+    timeout-minutes: 45
+
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tags: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v5
         with:
-          registry: ghcr.io
+          # Checkout the exact commit that triggered CI
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: 🐋 Set up QEMU for multi-arch builds
+        uses: docker/setup-qemu-action@v3
+
+      - name: 🔧 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:latest
+
+      - name: 🔑 Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build & push (multi-arch + SBOM + provenance)
+
+      - name: 📝 Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=Multi-LLM Orchestrator
+            org.opencontainers.image.description=Spring Boot service for LLM orchestration with Kafka-ready architecture
+            org.opencontainers.image.vendor=Anass Garoual
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+            app.kubernetes.io/name=multi-llm-orchestrator
+            app.kubernetes.io/component=backend
+            app.kubernetes.io/part-of=llm-platform
+
+      - name: 🔨 Build and push multi-arch image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-            ghcr.io/${{ github.repository }}:latest
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # GitHub Actions cache for faster builds
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Software Bill of Materials
           sbom: true
+          # Build provenance attestation
           provenance: true
-      - name: Install cosign
+          # Build args for future Kafka/K8s integration
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+
+      - name: 🔍 Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          # Skip Java archive scanning for faster results (optional)
+          skip-files: '*.jar'
+        continue-on-error: true
+
+      - name: 📤 Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'container-security'
+        continue-on-error: true
+
+      - name: 📊 Generate Trivy HTML report
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: 'template'
+          template: '@/contrib/html.tpl'
+          output: 'trivy-report.html'
+        continue-on-error: true
+
+      - name: 📤 Upload Trivy HTML report
+        uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: trivy-security-report
+          path: trivy-report.html
+          retention-days: 30
+
+      - name: 🧪 Smoke test container
+        run: |
+          # Pull the built image
+          IMAGE_TAG=$(echo '${{ steps.meta.outputs.tags }}' | head -n1)
+          docker pull $IMAGE_TAG
+
+          # Start container in detached mode
+          docker run -d --name test-container \
+            -p 8080:8080 \
+            -e SPRING_PROFILES_ACTIVE=test \
+            $IMAGE_TAG
+
+          # Wait for application startup (adjust timeout as needed)
+          echo "Waiting for application startup..."
+          for i in {1..30}; do
+            if docker logs test-container 2>&1 | grep -q "Started.*Application"; then
+              echo "✅ Application started successfully"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+
+          # Check container health
+          if docker ps | grep test-container; then
+            echo "✅ Container is running"
+            docker logs test-container
+            docker stop test-container
+          else
+            echo "❌ Container failed to start"
+            docker logs test-container || true
+            exit 1
+          fi
+        continue-on-error: true
+
+  # Stage 2: Sign image with Sigstore cosign (keyless)
+  sign:
+    name: ✍️ Sign Container Image
+    runs-on: ubuntu-latest
+    needs: build-scan
+    timeout-minutes: 10
+
+    steps:
+      - name: 🔑 Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔐 Install cosign
         uses: sigstore/cosign-installer@v4
-      - name: Sign image (keyless OIDC)
+
+      - name: ✍️ Sign container image with keyless signing
         env:
           COSIGN_EXPERIMENTAL: "1"
         run: |
-          cosign sign ghcr.io/${{ github.repository }}:${{ github.ref_name }} --yes
-          cosign sign ghcr.io/${{ github.repository }}:latest --yes
+          # Sign using image digest (immutable reference)
+          cosign sign \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-scan.outputs.image-digest }} \
+            --yes
+
+      - name: 📋 Verify signature
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          # Verify signature with GitHub OIDC identity
+          cosign verify \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-scan.outputs.image-digest }} \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer=https://token.actions.githubusercontent.com
+
+  # Stage 3: Generate and attest SBOM
+  sbom:
+    name: 📦 Generate SBOM
+    runs-on: ubuntu-latest
+    needs: build-scan
+    timeout-minutes: 10
+
+    steps:
+      - name: 🔑 Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📦 Generate SBOM with Syft
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-scan.outputs.image-digest }}
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+
+      - name: 📤 Upload SBOM as artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.cyclonedx.json
+          retention-days: 90
+
+      - name: 🔐 Attest SBOM with cosign
+        run: |
+          # Install cosign
+          curl -Lo cosign https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64
+          chmod +x cosign
+
+          # Attest SBOM to image
+          COSIGN_EXPERIMENTAL=1 ./cosign attest \
+            --predicate sbom.cyclonedx.json \
+            --type cyclonedx \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-scan.outputs.image-digest }} \
+            --yes
+
+  # Stage 4: Generate deployment manifests (for future K8s deployment)
+  generate-manifests:
+    name: 📝 Generate K8s Manifests
+    runs-on: ubuntu-latest
+    needs: build-scan
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v5
+
+      - name: 📝 Generate Kubernetes manifests
+        run: |
+          mkdir -p k8s-manifests
+
+          # Generate deployment manifest with new image
+          cat > k8s-manifests/deployment.yaml << EOF
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: multi-llm-orchestrator
+            labels:
+              app: multi-llm-orchestrator
+              version: ${{ github.sha }}
+          spec:
+            replicas: 3
+            selector:
+              matchLabels:
+                app: multi-llm-orchestrator
+            template:
+              metadata:
+                labels:
+                  app: multi-llm-orchestrator
+                  version: ${{ github.sha }}
+              spec:
+                containers:
+                - name: app
+                  image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-scan.outputs.image-digest }}
+                  ports:
+                  - containerPort: 8080
+                    name: http
+                  env:
+                  - name: SPRING_PROFILES_ACTIVE
+                    value: "production"
+                  # Future Kafka configuration
+                  # - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+                  #   value: "kafka-service:9092"
+                  resources:
+                    requests:
+                      memory: "512Mi"
+                      cpu: "500m"
+                    limits:
+                      memory: "2Gi"
+                      cpu: "2000m"
+                  livenessProbe:
+                    httpGet:
+                      path: /actuator/health/liveness
+                      port: 8080
+                    initialDelaySeconds: 60
+                    periodSeconds: 10
+                  readinessProbe:
+                    httpGet:
+                      path: /actuator/health/readiness
+                      port: 8080
+                    initialDelaySeconds: 30
+                    periodSeconds: 5
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: multi-llm-orchestrator
+          spec:
+            selector:
+              app: multi-llm-orchestrator
+            ports:
+            - protocol: TCP
+              port: 80
+              targetPort: 8080
+            type: ClusterIP
+          EOF
+
+          echo "✅ Kubernetes manifests generated"
+
+      - name: 📤 Upload K8s manifests
+        uses: actions/upload-artifact@v5
+        with:
+          name: k8s-manifests-${{ github.sha }}
+          path: k8s-manifests/
+          retention-days: 30
+
+  # Final stage: Deployment summary
+  summary:
+    name: 📊 Build Summary
+    runs-on: ubuntu-latest
+    needs: [ build-scan, sign, sbom, generate-manifests ]
+    if: always()
+
+    steps:
+      - name: 📊 Create deployment summary
+        run: |
+          echo "## 🐋 Docker Build & Security Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Image Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry:** \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** \`${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Digest:** \`${{ needs.build-scan.outputs.image-digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Pipeline Status" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build & Scan | ${{ needs.build-scan.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Signing | ${{ needs.sign.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SBOM Generation | ${{ needs.sbom.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| K8s Manifests | ${{ needs.generate-manifests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Pull Image" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-scan.outputs.image-digest }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔐 Verify Signature" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "cosign verify ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-scan.outputs.image-digest }} \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --certificate-identity-regexp='https://github.com/${{ github.repository }}' \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --certificate-oidc-issuer=https://token.actions.githubusercontent.com" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Ready for Kubernetes deployment and Kafka integration*" >> $GITHUB_STEP_SUMMARY
