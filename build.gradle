@@ -1,10 +1,12 @@
+import java.time.Year
+
 plugins {
   id 'java'
   id 'org.springframework.boot' version '3.5.7'
   id 'io.spring.dependency-management' version '1.1.7'
   id 'com.diffplug.spotless' version '8.0.0'
   id 'jacoco'
-  id 'org.owasp.dependencycheck' version '11.2.0'
+  id 'org.owasp.dependencycheck' version '10.0.4'
   id 'me.champeau.jmh' version '0.7.2'  // JMH benchmarks
 }
 
@@ -74,38 +76,38 @@ dependencyManagement {
 // ============================================
 
 spotless {
-  lineEndings 'UNIX'
+  lineEndings = 'UNIX'
 
   if (System.getenv('CI') == 'true') {
-    ratchetFrom 'origin/main'
+    ratchetFrom = 'origin/main'
   }
 
   java {
     toggleOffOn()
-    importOrder '\\#', 'java', 'jakarta', 'javax', 'org', 'com', ''
+    importOrder('\\#', 'java', 'jakarta', 'javax', 'org', 'com', '')
     googleJavaFormat('1.28.0')
     removeUnusedImports()
     trimTrailingWhitespace()
     endWithNewline()
 
-    licenseHeader '''/*
- * Copyright (c) 2025 Anass Garoual
+    licenseHeader("""/*
+ * Copyright (c) ${Year.now()} Anass Garoual
  * Licensed under the MIT License.
- */'''
+ */""")
 
-    target 'src/**/*.java'
-    targetExclude 'build/**/*.java', 'src/jmh/**/*.java'
+    target('src/**/*.java')
+    targetExclude('build/**/*.java', 'src/jmh/**/*.java')
   }
 
-  format 'misc', {
-    target '*.gradle', '*.gradle.kts', '*.yaml', '*.yml', '*.json', '*.properties', '*.xml'
+  format('misc') {
+    target('*.gradle', '*.gradle.kts', '*.yaml', '*.yml', '*.json', '*.properties', '*.xml')
     trimTrailingWhitespace()
     endWithNewline()
-    leadingTabsToSpaces(2)
+    indentWithSpaces(2)
   }
 
-  format 'markdown', {
-    target '*.md', 'docs/**/*.md'
+  format('markdown') {
+    target('*.md', 'docs/**/*.md')
     endWithNewline()
   }
 }
@@ -143,9 +145,10 @@ tasks.register('installGitHooks', Exec) {
 
 tasks.named('test') {
   useJUnitPlatform()
+  jvmArgs("-Xshare:off")
 
   doFirst {
-    def agent = configurations.testRuntimeClasspath.resolve().find { f ->
+    def agent = configurations.testRuntimeClasspath.files.find { f ->
       f.name.startsWith('byte-buddy-agent') && f.name.endsWith('.jar')
     }
     if (!agent) {
@@ -154,16 +157,15 @@ tasks.named('test') {
     jvmArgs("-javaagent:${agent.absolutePath}")
   }
 
-  jvmArgs "-Xshare:off"
   finalizedBy jacocoTestReport
 }
 
 tasks.withType(Test).configureEach {
-  jvmArgs "-Xshare:off"
+  jvmArgs("-Xshare:off")
 }
 
 tasks.withType(JavaExec).configureEach {
-  jvmArgs "-Xshare:off"
+  jvmArgs("-Xshare:off")
 }
 
 // ============================================
@@ -171,15 +173,15 @@ tasks.withType(JavaExec).configureEach {
 // ============================================
 
 jacoco {
-  toolVersion = "0.8.12"
+  toolVersion = "0.8.13"
 }
 
 jacocoTestReport {
   dependsOn test
 
   reports {
-    xml.required = true
-    html.required = true
+    xml.required.set(true)  // ← Nouvelle syntaxe
+    html.required.set(true) // ← Nouvelle syntaxe
   }
 
   afterEvaluate {
@@ -198,7 +200,7 @@ jacocoTestCoverageVerification {
   violationRules {
     rule {
       limit {
-        minimum = 0.70  // 70% coverage minimum
+        minimum = 0.70
       }
     }
   }
@@ -210,7 +212,12 @@ jacocoTestCoverageVerification {
 
 dependencyCheck {
   format = 'HTML'
-  suppressionFile = file('.github/dependency-check-suppressions.xml')
+
+  def suppressFile = file('.github/dependency-check-suppressions.xml')
+  if (suppressFile.exists()) {
+    suppressionFile = suppressFile
+  }
+
   failBuildOnCVSS = 7.0
 
   analyzers {
