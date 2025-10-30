@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2025 Anass Garoual
+ * Licensed under the MIT License.
+ */
 package com.multi.adapters.infra.errors;
 
 import java.net.URI;
@@ -17,6 +21,12 @@ public enum ProblemTypes {
   INTERNAL("urn:problem:internal");
 
   private final URI uri;
-  ProblemTypes(String value) { this.uri = URI.create(value); }
-  public URI uri() { return uri; }
+
+  ProblemTypes(String value) {
+    this.uri = URI.create(value);
+  }
+
+  public URI uri() {
+    return uri;
+  }
 }

@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2025 Anass Garoual
+ * Licensed under the MIT License.
+ */
 package com.multi.adapters.infra;
 
 import lombok.RequiredArgsConstructor;
@@ -8,7 +12,9 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.web.cors.*;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @RequiredArgsConstructor
@@ -17,14 +23,17 @@ public class SecurityConfig {
 
   @Bean
   SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-    http
-      .csrf(AbstractHttpConfigurer::disable)
-      .cors(Customizer.withDefaults())
-      .authorizeHttpRequests(auth -> auth
-        .requestMatchers("/actuator/health").permitAll()
-        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-        .anyRequest().permitAll() //TODO: Swap to API-Key/JWT
-      );
+    http.csrf(AbstractHttpConfigurer::disable)
+        .cors(Customizer.withDefaults())
+        .authorizeHttpRequests(
+            auth ->
+                auth.requestMatchers("/actuator/health")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.OPTIONS, "/**")
+                    .permitAll()
+                    .anyRequest()
+                    .permitAll() // TODO: Swap to API-Key/JWT
+            );
     return http.build();
   }
 

@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2025 Anass Garoual
+ * Licensed under the MIT License.
+ */
 package com.multi.adapters.infra;
 
 import lombok.Getter;
@@ -6,7 +10,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 /** Application infra properties (CORS, etc.). */
-@Getter @Setter
+@Getter
+@Setter
 @Configuration
 @ConfigurationProperties(prefix = "app.cors")
 public class AppProps {
