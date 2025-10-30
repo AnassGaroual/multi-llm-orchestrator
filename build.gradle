@@ -133,11 +133,9 @@ tasks.register('installGitHooks', Exec) {
   description = 'Install Git hooks from .githooks/'
   group = 'git'
 
+  // Skip in CI environments
   onlyIf {
-    def hooksPath = providers.exec {
-      commandLine 'git', 'config', 'core.hooksPath'
-    }.standardOutput.asText.get().trim()
-    hooksPath != '.githooks'
+    System.getenv('CI') != 'true'
   }
 
   doFirst {
