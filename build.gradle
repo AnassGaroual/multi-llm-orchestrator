@@ -193,8 +193,8 @@ jacocoTestReport {
   dependsOn test
 
   reports {
-    xml.required.set(true)  // ← Nouvelle syntaxe
-    html.required.set(true) // ← Nouvelle syntaxe
+    xml.required.set(true)
+    html.required.set(true)
   }
 
   afterEvaluate {
@@ -218,6 +218,7 @@ jacocoTestCoverageVerification {
     }
   }
 }
+
 
 // ============================================
 // OWASP Dependency Check
@@ -270,7 +271,7 @@ tasks.named('build') {
 }
 
 tasks.named('check') {
-  dependsOn 'spotlessCheck', 'jacocoTestCoverageVerification'
+  dependsOn 'spotlessCheck'
 }
 
 tasks.register('securityCheck') {
@@ -280,7 +281,7 @@ tasks.register('securityCheck') {
 }
 
 tasks.register('fullCheck') {
-  dependsOn 'clean', 'check', 'securityCheck'
-  description = 'Run all quality checks'
+  dependsOn 'clean', 'check', 'jacocoTestCoverageVerification', 'securityCheck'
+  description = 'Run all quality checks including coverage verification'
   group = 'verification'
 }
