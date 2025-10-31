@@ -129,8 +129,8 @@ spotless {
 // Git Hooks Installation
 // ============================================
 
-tasks.register('installGitHooks', Exec) {
-  description = 'Install Git hooks from .githooks/'
+tasks.register('installGitHooks') {
+  description = 'Install Git hooks from .githooks/ (cross-platform)'
   group = 'git'
 
   // Skip in CI environments
@@ -138,15 +138,55 @@ tasks.register('installGitHooks', Exec) {
     System.getenv('CI') != 'true'
   }
 
-  doFirst {
-    logger.lifecycle('📦 Installing Git hooks...')
-  }
-
-  commandLine 'sh', './install-hooks.sh'
-  ignoreExitValue = true
-
   doLast {
-    logger.lifecycle('✅ Git hooks installed')
+    logger.lifecycle('📦 Installing Git hooks...')
+
+    // Detect Git executable
+    def gitExec = System.getProperty('os.name').toLowerCase().contains('windows')
+      ? 'git.exe'
+      : 'git'
+
+    // Verify we're in a Git repository
+    def isGitRepo = providers.exec {
+      commandLine gitExec, 'rev-parse', '--git-dir'
+      ignoreExitValue = true
+    }.result.get().exitValue == 0
+
+    if (!isGitRepo) {
+      logger.warn('Not a Git repository, skipping hook installation')
+      return
+    }
+
+    // Check current hooks path
+    def currentHooksPath = providers.exec {
+      commandLine gitExec, 'config', '--get', 'core.hooksPath'
+      ignoreExitValue = true
+    }.standardOutput.asText.get().trim()
+
+    if (currentHooksPath == '.githooks') {
+      logger.lifecycle('✅ Git hooks already configured')
+      return
+    }
+
+    // Configure Git to use .githooks directory
+    providers.exec {
+      commandLine gitExec, 'config', 'core.hooksPath', '.githooks'
+    }.result.get()
+
+    // Verify configuration
+    def verifyHooksPath = providers.exec {
+      commandLine gitExec, 'config', '--get', 'core.hooksPath'
+    }.standardOutput.asText.get().trim()
+
+    if (verifyHooksPath == '.githooks') {
+      logger.lifecycle('✅ Git hooks installed successfully')
+      logger.lifecycle('   • pre-commit  → Auto-format staged Java files')
+      logger.lifecycle('   • pre-push    → Verify formatting before push')
+      logger.lifecycle('   • commit-msg  → Enforce Conventional Commits')
+    } else {
+      logger.error('❌ Failed to configure Git hooks')
+      throw new GradleException('Git hooks installation failed')
+    }
   }
 }
 
