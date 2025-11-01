@@ -1,15 +1,91 @@
 services:
+  # ============================================
+  # Main Application (distroless, non-root)
+  # ============================================
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+        GIT_COMMIT: ${GIT_COMMIT:-dev}
+        VERSION: ${VERSION:-0.0.1-SNAPSHOT}
     image: mlo/app:dev
+    container_name: mlo-app
+    restart: unless-stopped
+
+    # If you're on Apple Silicon but build x86 in CI, uncomment:
+    # platform: linux/amd64
+
     ports:
       - "8080:8080"
+
     env_file:
       - .env
+
     environment:
+      # Activate container profile
       SPRING_PROFILES_ACTIVE: docker
-    healthcheck:
-      test: ["CMD-SHELL","wget -qO- http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
-      interval: 20s
-      timeout: 5s
-      retries: 5
+      # JVM flags (override those baked in image if needed)
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+UseG1GC
+        -XX:MaxRAMPercentage=75.0
+        -XX:+ExitOnOutOfMemoryError
+        -Xshare:off
+      # Optional: write logs to mounted volume (ensure app supports this)
+      # LOGGING_FILE_PATH: /app/logs
+
+    # DO NOT depend on the healthcheck sidecar (it depends on app).
+    # No healthcheck here (distroless has no shell/curl).
+
+    networks:
+      - mlo-network
+
+    # Prefer a named volume over a host bind for permissions with distroless
+    volumes:
+      - app-logs:/app/logs
+
+    labels:
+      com.docker.compose.project: "multi-llm-orchestrator"
+      app.version: "${VERSION:-0.0.1-SNAPSHOT}"
+      app.environment: "local"
+      app.jre: "custom-jlink-25"
+
+  # ============================================
+  # Health Check Sidecar (polls actuator)
+  # ============================================
+  healthcheck:
+    image: curlimages/curl:8.11.1
+    container_name: mlo-healthcheck
+    restart: unless-stopped
+
+    command: >
+      sh -c '
+        echo "⏳ Waiting for app...";
+        until curl -sf http://app:8080/actuator/health | grep -q "UP"; do
+          sleep 3;
+        done;
+        echo "✅ App is healthy!";
+        while true; do
+          sleep 30;
+          if ! curl -sf http://app:8080/actuator/health | grep -q "UP"; then
+            echo "❌ App is DOWN!";
+            exit 1;
+          fi
+        done
+      '
+
+    depends_on:
+      - app
+
+    networks:
+      - mlo-network
+
+networks:
+  mlo-network:
+    driver: bridge
+    name: mlo-network
+
+volumes:
+  app-logs:
+    name: mlo-app-logs

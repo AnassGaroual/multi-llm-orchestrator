@@ -1,54 +1,98 @@
-# syntax=docker/dockerfile:1.4
+# syntax=docker/dockerfile:1.7
 
-# ============================================
-# Build stage - Multi-platform compatible
-# ============================================
+############################################
+# Stage 1 — Build (JDK 25, Gradle cached)
+############################################
 FROM eclipse-temurin:25-jdk AS builder
 
+# Gradle cache outside workspace for BuildKit sharing
+ENV GRADLE_USER_HOME=/gradle
 WORKDIR /workspace
 
-# Copy Gradle wrapper and config files (for layer caching)
-COPY --link gradlew gradlew.bat settings.gradle.kts build.gradle.kts ./
+# 1) Wrapper and Gradle (rarely change)
+COPY --link gradlew gradlew.bat ./
 COPY --link gradle ./gradle
 
-# Download dependencies (cached layer if build.gradle unchanged)
-RUN --mount=type=cache,target=/root/.gradle \
-    ./gradlew dependencies --no-daemon
+# 2) Build config (changes occasionally)
+#    Wildcards cover .gradle and .gradle.kts setups
+COPY --link build.gradle* settings.gradle* ./
 
-# Copy source code
+# Warm caches (no build output yet)
+RUN --mount=type=cache,target=/gradle,sharing=locked \
+    ./gradlew --no-daemon --console=plain dependencies
+
+# 3) Sources (change frequently)
 COPY --link src ./src
 
-# Build application (with Gradle cache mount)
-RUN --mount=type=cache,target=/root/.gradle \
-    --mount=type=cache,target=/workspace/build \
-    ./gradlew clean bootJar -x test --no-daemon --build-cache && \
-    cp build/libs/*-SNAPSHOT.jar app.jar
+# Build the runnable Spring Boot jar (no `clean`; avoids cache dir lock issues)
+RUN --mount=type=cache,target=/gradle,sharing=locked \
+    ./gradlew --no-daemon --console=plain --build-cache bootJar \
+ && cp build/libs/*-SNAPSHOT.jar /workspace/app.jar
 
-# ============================================
-# Runtime stage - Distroless for security
-# ============================================
-FROM gcr.io/distroless/java25-debian12:nonroot
+############################################
+# Stage 2 — JRE 25 slimming with jdeps/jlink
+############################################
+FROM eclipse-temurin:25-jdk AS jrebuilder
+WORKDIR /opt
+
+# Bring the fat jar to analyze real deps
+COPY --from=builder /workspace/app.jar /opt/app.jar
+
+# Comprehensive module detection for Spring Boot + Tomcat
+RUN jdeps \
+      --ignore-missing-deps \
+      --multi-release 25 \
+      --print-module-deps \
+      /opt/app.jar \
+    | awk '{print $0",jdk.crypto.ec,jdk.localedata,jdk.management,jdk.naming.dns,jdk.security.jgss,java.sql,java.naming,java.desktop,java.instrument,java.management,java.prefs,jdk.unsupported,jdk.charsets"}' > /opt/jre-mods.txt \
+ && echo "Using modules: $(cat /opt/jre-mods.txt)"
+
+# Build a minimal JRE 25 image
+RUN jlink \
+      --add-modules "$(cat /opt/jre-mods.txt)" \
+      --output /opt/jre \
+      --strip-debug \
+      --no-man-pages \
+      --no-header-files \
+      --compress=2
+
+############################################
+# Stage 3 — Runtime (Distroless, non-root)
+############################################
+# Note: we use distroless *base* and bring our own jlink JRE 25.
+# This keeps Java at 25 in runtime while staying distroless/minimal.
+FROM gcr.io/distroless/base-debian12:nonroot AS runtime
 
 WORKDIR /app
 
-# JVM optimizations
+# OCI annotations (filled by CI at build time)
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE
+ARG VERSION=0.0.1-SNAPSHOT
+LABEL org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.authors="Anass Garoual" \
+      org.opencontainers.image.url="https://github.com/AnassGaroual/multi-llm-orchestrator" \
+      org.opencontainers.image.source="https://github.com/AnassGaroual/multi-llm-orchestrator" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.vendor="Anass Garoual" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.title="Multi-LLM Orchestrator" \
+      org.opencontainers.image.description="Production-ready AI orchestration — Distroless + custom JRE 25"
+
+# JVM tuning (container-aware GC, silence CDS warning)
 ENV _JAVA_OPTIONS="-Xshare:off"
-ENV JAVA_TOOL_OPTIONS="-XX:+UseG1GC -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -XX:+UseContainerSupport"
+ENV JAVA_TOOL_OPTIONS="-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
 
-# OCI labels for metadata
-LABEL org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY"
-LABEL org.opencontainers.image.description="Multi-LLM Orchestrator - Spring Boot application"
-LABEL org.opencontainers.image.licenses="MIT"
-
-# Copy built artifact
-COPY --from=builder --chown=nonroot:nonroot /workspace/app.jar /app/app.jar
-
-# Health check endpoint (if you have /actuator/health)
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD ["/usr/bin/wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
-
-EXPOSE 8080
+# Copy custom JRE 25 and the app
+COPY --from=jrebuilder --chown=nonroot:nonroot /opt/jre /opt/jre
+COPY --from=builder    --chown=nonroot:nonroot /workspace/app.jar /app/app.jar
 
 USER nonroot:nonroot
+EXPOSE 8080
 
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+# Optional: set Spring profile for containers (to override in compose if needed)
+ENV SPRING_PROFILES_ACTIVE=docker
+
+# No shell in distroless, call java directly from jlink JRE
+ENTRYPOINT ["/opt/jre/bin/java","-jar","/app/app.jar"]
