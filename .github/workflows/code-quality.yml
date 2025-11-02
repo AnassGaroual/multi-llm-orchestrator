@@ -103,6 +103,7 @@ jobs:
         with:
           languages: java
           queries: security-extended,security-and-quality
+          config-file: .github/codeql/codeql-config.yml
 
       - name: 🔨 Autobuild
         uses: github/codeql-action/autobuild@v3
