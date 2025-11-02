@@ -10,8 +10,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -24,10 +24,19 @@ public class SecurityConfig {
   @Bean
   SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
     http
-        // CSRF disabled: Stateless REST API with token-based auth (no session cookies)
-        // See:
-        // https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html#csrf-when
-        .csrf(AbstractHttpConfigurer::disable)
+        // CSRF: Enabled but exempted for API and actuator endpoints
+        // Token-based APIs (JWT) are not vulnerable to CSRF attacks
+        // Browser-based cookie auth would require full CSRF protection
+        .csrf(
+            csrf ->
+                csrf
+                    // Exempt stateless API endpoints from CSRF
+                    .ignoringRequestMatchers(
+                        "/api/**", // All API endpoints (token-based)
+                        "/actuator/**" // Actuator endpoints (monitoring)
+                        )
+                    // Keep CSRF enabled for any future web endpoints
+                    .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
         .cors(Customizer.withDefaults())
         .authorizeHttpRequests(
             auth ->
