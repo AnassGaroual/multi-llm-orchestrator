@@ -23,7 +23,11 @@ public class SecurityConfig {
 
   @Bean
   SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-    http.csrf(AbstractHttpConfigurer::disable)
+    http
+        // CSRF disabled: Stateless REST API with token-based auth (no session cookies)
+        // See:
+        // https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html#csrf-when
+        .csrf(AbstractHttpConfigurer::disable)
         .cors(Customizer.withDefaults())
         .authorizeHttpRequests(
             auth ->

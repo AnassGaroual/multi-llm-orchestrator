@@ -176,14 +176,13 @@ public class ProblemDetailsHandler {
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<ProblemDetail> onForbidden(
       AccessDeniedException ex, HttpServletRequest req) {
-    var p =
-        pd(
-            req,
-            HttpStatus.FORBIDDEN,
-            FORBIDDEN,
-            "Forbidden",
-            "You do not have permission for this resource.");
-    return ResponseEntity.status(p.getStatus()).contentType(PROBLEM).body(p);
+    var detail =
+        (ex.getMessage() == null || ex.getMessage().isBlank())
+            ? "Access is denied."
+            : ex.getMessage();
+
+    var body = pd(req, HttpStatus.FORBIDDEN, ProblemTypes.FORBIDDEN, "Forbidden", detail);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
   }
 
   /* ---------------------------- 404 / 405 / 415 ---------------------------- */
@@ -191,7 +190,8 @@ public class ProblemDetailsHandler {
   @ExceptionHandler(NoHandlerFoundException.class)
   public ResponseEntity<ProblemDetail> onNotFound(
       NoHandlerFoundException ex, HttpServletRequest req) {
-    var p = pd(req, HttpStatus.NOT_FOUND, NOT_FOUND, "Not found", "Endpoint does not exist.");
+    var detail = "No handler for %s %s".formatted(ex.getHttpMethod(), ex.getRequestURL());
+    var p = pd(req, HttpStatus.NOT_FOUND, ProblemTypes.NOT_FOUND, "Not Found", detail);
     // already added method/path via pd(req,…)
     return ResponseEntity.status(p.getStatus()).contentType(PROBLEM).body(p);
   }

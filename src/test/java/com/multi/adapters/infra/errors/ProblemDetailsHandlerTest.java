@@ -8,8 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -89,7 +87,7 @@ class ProblemDetailsHandlerTest {
         .andExpect(status().isBadRequest())
         .andExpect(content().contentType("application/problem+json"))
         .andExpect(jsonPath("$.type").value("urn:problem:constraint-violation"))
-        .andExpect(jsonPath("$.errors[0].path").value("age"));
+        .andExpect(jsonPath("$.errors[0].path").value("ageCheck.age"));
   }
 
   // ---------- 404 ----------
@@ -100,7 +98,7 @@ class ProblemDetailsHandlerTest {
         .andExpect(status().isNotFound())
         .andExpect(content().contentType("application/problem+json"))
         .andExpect(jsonPath("$.type").value("urn:problem:not-found"))
-        .andExpect(jsonPath("$.title").value("Not found"))
+        .andExpect(jsonPath("$.title").value("Not Found"))
         .andExpect(jsonPath("$.status").value(404))
         .andExpect(jsonPath("$.path").exists())
         .andExpect(jsonPath("$.method").value("GET"));
@@ -149,38 +147,6 @@ class ProblemDetailsHandlerTest {
   @RestController
   @RequestMapping("/t")
   @Validated
-  static class TestController {
-
-    record EchoReq(@NotBlank String name) {
-      @JsonCreator
-      EchoReq(@JsonProperty("name") String name) {
-        this.name = name;
-      }
-    }
-
-    @PostMapping(path = "/echo", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public EchoReq echo(@RequestBody @Valid EchoReq req) {
-      return req;
-    }
-
-    @GetMapping("/age-check")
-    public String ageCheck(@RequestParam @Min(0) int age) {
-      return "ok:" + age;
-    }
-
-    @GetMapping("/only-get")
-    public String onlyGet() {
-      return "GET";
-    }
-
-    @GetMapping("/bomb")
-    public String bomb() {
-      throw new RuntimeException("boom (should not leak)");
-    }
-  }
-
-  @RestController
-  @RequestMapping("/t")
   static class TestEndpoints {
 
     // Exists for GET only. Hitting POST /t/only-get → 405
@@ -206,11 +172,11 @@ class ProblemDetailsHandlerTest {
 
     // Constraint violation on query param → 400 (ConstraintViolationException)
     @GetMapping("/age-check")
-    public void ageCheck(@RequestParam @Min(0) int age) {
-      /* no-op */
+    public String ageCheck(@RequestParam @Min(0) int age) {
+      return "ok:" + age;
     }
 
     // DTO with Bean Validation
-    static record EchoReq(@NotBlank String name) {}
+    record EchoReq(@NotBlank String name) {}
   }
 }
