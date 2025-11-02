@@ -33,7 +33,8 @@ public class SecurityConfig {
                     // Exempt stateless API endpoints from CSRF
                     .ignoringRequestMatchers(
                         "/api/**", // All API endpoints (token-based)
-                        "/actuator/**" // Actuator endpoints (monitoring)
+                        "/actuator/**", // Actuator endpoints (monitoring)
+                        "/t/**" // Test endpoints (used in integration tests)
                         )
                     // Keep CSRF enabled for any future web endpoints
                     .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
