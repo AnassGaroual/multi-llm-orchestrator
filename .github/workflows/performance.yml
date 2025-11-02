@@ -1,0 +1,57 @@
+name: ⚡ Performance Benchmarks
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/main/java/**'
+      - 'build.gradle'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  benchmarks:
+    name: ⚡ Run JMH Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v5
+
+      - name: ☕ Setup JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+
+      - name: 🔧 Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: ⚡ Run Benchmarks
+        run: ./gradlew jmh --no-daemon || echo "No JMH benchmarks found (optional)"
+        continue-on-error: true
+
+      - name: 📤 Upload Benchmark Results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: benchmark-results
+          path: build/reports/jmh
+          retention-days: 30
+
+      - name: 💬 Comment Results on PR
+        if: success() && github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '⚡ Performance benchmarks completed! Check artifacts for detailed results.'
+            });

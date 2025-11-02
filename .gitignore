@@ -35,3 +35,19 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Logs
+**/*.log
+
+# Tests outputs
+**/build/test-results/
+**/build/reports/
+
+# env files / secrets
+.env
+.env.*
+!.env.example
+secrets/
+
+# OWASP Dependency Check cache
+.gradle/dependency-check-data/

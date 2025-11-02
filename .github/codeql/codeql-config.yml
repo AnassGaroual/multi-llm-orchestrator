@@ -1,0 +1,13 @@
+name: "CodeQL Security Config"
+
+queries:
+  - uses: security-and-quality
+
+# Suppress false positives
+query-filters:
+  - exclude:
+      id: java/spring-disabled-csrf-protection
+      reason: |
+        Stateless REST API using JWT Bearer tokens (not session cookies).
+        CSRF protection is not applicable for token-based authentication.
+        See SecurityConfig.java for detailed justification.

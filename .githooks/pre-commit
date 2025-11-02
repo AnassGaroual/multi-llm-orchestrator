@@ -1,0 +1,35 @@
+#!/bin/sh
+# Pre-commit hook - Format staged Java files
+# Cross-platform compatible (Windows Git Bash, Linux, macOS)
+
+set -e
+
+echo "🎨 Formatting staged Java files..."
+
+# Detect OS and use appropriate Gradle wrapper
+if [ -f "gradlew.bat" ] && [ -n "$WINDIR" ]; then
+  GRADLE_CMD="./gradlew.bat"
+else
+  GRADLE_CMD="./gradlew"
+fi
+
+# Get staged Java files
+STAGED_JAVA=$(git diff --cached --name-only --diff-filter=ACMR | grep '\.java$' || true)
+
+if [ -z "$STAGED_JAVA" ]; then
+  echo "✅ No Java files to format"
+  exit 0
+fi
+
+# Apply formatting only to staged files
+$GRADLE_CMD spotlessApply --quiet 2>&1 | grep -v "deprecated\|configuration cache" || true
+
+# Re-stage formatted files
+echo "$STAGED_JAVA" | while IFS= read -r file; do
+  if [ -f "$file" ]; then
+    git add "$file"
+  fi
+done
+
+echo "✅ Formatting applied to staged files"
+exit 0

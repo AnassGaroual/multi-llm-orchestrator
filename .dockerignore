@@ -1,0 +1,43 @@
+# Build artifacts
+**/target/
+**/build/
+**/.gradle/
+**/.idea/
+**/.vscode/
+**/*.iml
+**/.DS_Store
+**/out/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Docs
+README.md
+LICENSE
+docs/
+*.md
+
+# Local configs
+.env
+.env.*
+!.env.exemple
+docker-compose*.yml
+**/*.log
+
+*.log
+
+# Test files
+**/test/
+**/*Test.java
+**/*Tests.java
+
+# Security
+**/*.key
+**/*.pem
+**/*.p12
