@@ -4,6 +4,8 @@ on:
   push:
     branches: [ main ]
     tags: [ 'v*' ]
+  pull_request: # ← AJOUTÉ: Test sur PR!
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -65,6 +67,11 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VERSION=${{ steps.meta.outputs.version }}
 
+      # Pull the image locally for scanning (Docker is already authenticated)
+      - name: 📥 Pull image for scanning
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} --platform linux/amd64
+
       - name: 📦 Generate SBOM with Syft
         uses: anchore/sbom-action@v0
         with:
@@ -73,18 +80,14 @@ jobs:
           output-file: sbom.cyclonedx.json
           upload-artifact: true
           upload-release-assets: false
-          registry-username: ${{ github.actor }}
-          registry-password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🛡️ Install Cosign
         uses: sigstore/cosign-installer@v4.0.0
 
       - name: ✍️ Sign container image
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          echo "Signing image: ${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
-          cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+          echo "Signing image: ${REGISTRY}/${IMAGE_NAME}@${{ steps.build.outputs.digest }}"
+          cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${{ steps.build.outputs.digest }}"
 
       - name: 🔍 Trivy vulnerability scan
         uses: aquasecurity/trivy-action@0.33.1
@@ -93,9 +96,6 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
-        env:
-          TRIVY_USERNAME: ${{ github.actor }}
-          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📤 Upload Trivy results to Security
         uses: github/codeql-action/upload-sarif@v3
