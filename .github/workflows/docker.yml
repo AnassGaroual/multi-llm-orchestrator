@@ -24,6 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    env:
+      IMAGE_NAME_LC: anassgaroual/multi-llm-orchestrator
+
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v5
@@ -69,12 +72,12 @@ jobs:
       # Pull the image locally for scanning (Docker is already authenticated)
       - name: 📥 Pull image for scanning
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }} --platform linux/amd64
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }} --platform linux/amd64
 
       - name: 📦 Generate SBOM with Syft
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
           upload-artifact: true
@@ -85,13 +88,13 @@ jobs:
 
       - name: ✍️ Sign container image
         run: |
-          echo "Signing image: ${REGISTRY}/${IMAGE_NAME}@${{ steps.build.outputs.digest }}"
-          cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${{ steps.build.outputs.digest }}"
+          echo "Signing image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }}"
+          cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }}"
 
       - name: 🔍 Trivy vulnerability scan
         uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
