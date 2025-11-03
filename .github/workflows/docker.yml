@@ -4,6 +4,8 @@ on:
   push:
     branches: [ main ]
     tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -21,6 +23,9 @@ jobs:
     name: 🏗️ Build & Push
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    env:
+      IMAGE_NAME_LC: anassgaroual/multi-llm-orchestrator
 
     steps:
       - name: 📥 Checkout
@@ -46,7 +51,6 @@ jobs:
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: 🏗️ Build and push
@@ -65,37 +69,35 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VERSION=${{ steps.meta.outputs.version }}
 
+      # Pull the image locally for scanning (Docker is already authenticated)
+      - name: 📥 Pull image for scanning
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }} --platform linux/amd64
+
       - name: 📦 Generate SBOM with Syft
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom.cyclonedx.json
           upload-artifact: true
           upload-release-assets: false
-          registry-username: ${{ github.actor }}
-          registry-password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🛡️ Install Cosign
         uses: sigstore/cosign-installer@v4.0.0
 
       - name: ✍️ Sign container image
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          echo "Signing image: ${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
-          cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+          echo "Signing image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }}"
+          cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }}"
 
       - name: 🔍 Trivy vulnerability scan
         uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}@${{ steps.build.outputs.digest }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
-        env:
-          TRIVY_USERNAME: ${{ github.actor }}
-          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📤 Upload Trivy results to Security
         uses: github/codeql-action/upload-sarif@v3
