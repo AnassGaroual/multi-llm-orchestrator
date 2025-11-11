@@ -128,36 +128,54 @@ public final class Workflow {
     log.debug("Workflow {} validated successfully", id);
   }
 
-  /** Detect cycles using DFS */
+  /** Detect cycles using DFS starting from entry node */
   @InvariantRule("Workflow must be a DAG (no cycles)")
   private void detectCycles() {
-    var state = new HashMap<NodeId, Integer>();
+    var visited = new HashSet<NodeId>();
+    var recStack = new HashSet<NodeId>();
 
+    // Start from entry node for deterministic behavior
+    if (hasCycleDFS(entryNode, visited, recStack)) {
+      throw new CycleDetectedException(entryNode.value());
+    }
+
+    // Also check unreachable nodes
     for (NodeId nodeId : nodes.keySet()) {
-      if (hasCycleDFS(nodeId, state)) {
-        throw new CycleDetectedException(nodeId.value());
+      if (!visited.contains(nodeId)) {
+        if (hasCycleDFS(nodeId, visited, recStack)) {
+          throw new CycleDetectedException(nodeId.value());
+        }
       }
     }
   }
 
-  private boolean hasCycleDFS(NodeId current, Map<NodeId, Integer> state) {
-    int currentState = state.getOrDefault(current, 0);
+  private boolean hasCycleDFS(NodeId current, Set<NodeId> visited, Set<NodeId> recStack) {
+    // Already in recursion stack = cycle found
+    if (recStack.contains(current)) {
+      return true;
+    }
 
-    if (currentState == 1) return true;
-    if (currentState == 2) return false;
+    // Already visited and cleared = no cycle
+    if (visited.contains(current)) {
+      return false;
+    }
 
-    state.put(current, 1);
+    // Mark as visiting
+    visited.add(current);
+    recStack.add(current);
 
+    // Visit all neighbors
     Node node = nodes.get(current);
     if (node != null) {
       for (NodeId next : node.getNextNodes()) {
-        if (hasCycleDFS(next, state)) {
+        if (hasCycleDFS(next, visited, recStack)) {
           return true;
         }
       }
     }
 
-    state.put(current, 2);
+    // Remove from recursion stack (backtrack)
+    recStack.remove(current);
     return false;
   }
 
