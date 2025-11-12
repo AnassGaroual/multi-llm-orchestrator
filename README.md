@@ -102,62 +102,180 @@ cd multi-llm-orchestrator
 
 ```
 multi-llm-orchestrator/
-├── boot/                               # Application entry point
-│   └── MultiLlmOrchestratorApplication.java
-│
-├── domain/                             # ✅ Core business logic (DDD)
-│   ├── workflow/                       # Workflow Management bounded context
-│   │   ├── Workflow.java               # Aggregate Root
-│   │   ├── Node.java                   # Entity (sealed hierarchy)
-│   │   ├── AgentNode.java              # Concrete node implementation
-│   │   ├── WorkflowStatus.java         # Enum
-│   │   └── package-info.java           # Bounded context documentation
+├── src/main/java/com/multi/
+│   ├── boot/                           # Application entry point
+│   │   └── MultiLlmOrchestratorApplication.java
 │   │
-│   ├── shared/                         # Shared kernel
-│   │   ├── WorkflowId.java             # Value Object
-│   │   ├── NodeId.java                 # Value Object
-│   │   ├── NodeConstraints.java        # Value Object
-│   │   ├── InputMapping.java           # Value Object
-│   │   ├── OutputSchema.java           # Value Object
-│   │   ├── ValidationException.java    # Domain exception
-│   │   └── CycleDetectedException.java # Domain exception
+│   ├── domain/                         # ✅ Core business logic (DDD) - 47 files
+│   │   ├── annotation/                 # DDD pattern annotations (7 files)
+│   │   │   ├── BoundedContext.java
+│   │   │   ├── DomainAggregate.java
+│   │   │   ├── DomainEntity.java
+│   │   │   ├── DomainService.java
+│   │   │   ├── DomainValueObject.java
+│   │   │   ├── FactoryMethod.java
+│   │   │   └── InvariantRule.java
+│   │   │
+│   │   ├── consensus/                  # Consensus bounded context (2 files)
+│   │   │   ├── ConsensusStrategy.java  # Strategy interface
+│   │   │   └── package-info.java
+│   │   │
+│   │   ├── event/                      # Domain events (5 files)
+│   │   │   ├── DomainEvent.java
+│   │   │   ├── WorkflowPublished.java
+│   │   │   ├── ExecutionStarted.java
+│   │   │   ├── NodeExecuted.java
+│   │   │   └── ConsensusAchieved.java
+│   │   │
+│   │   ├── execution/                  # Execution bounded context (4 files)
+│   │   │   ├── ExecutionContext.java   # Runtime context (record)
+│   │   │   ├── ExecutionStatus.java    # State enum
+│   │   │   ├── ExecutionStrategy.java  # Strategy enum
+│   │   │   └── package-info.java
+│   │   │
+│   │   ├── optimization/               # Optimization bounded context (4 files)
+│   │   │   ├── Budget.java             # Budget interface
+│   │   │   ├── TokenBudget.java        # Token budget (record)
+│   │   │   ├── CostBudget.java         # Cost budget (record)
+│   │   │   └── package-info.java
+│   │   │
+│   │   ├── service/                    # Domain services (1 file)
+│   │   │   └── CycleDetectionService.java
+│   │   │
+│   │   ├── shared/                      # Shared kernel (10 files)
+│   │   │   ├── WorkflowId.java                  # Value Object
+│   │   │   ├── NodeId.java                      # Value Object
+│   │   │   ├── ExecutionId.java                 # Value Object
+│   │   │   ├── ConsensusSessionId.java          # Value Object
+│   │   │   ├── DomainException.java             # Base exception
+│   │   │   ├── ValidationException.java         # Domain exception
+│   │   │   ├── CycleDetectedException.java      # Domain exception
+│   │   │   ├── InsufficientBudgetException.java # Domain exception
+│   │   │   ├── InvalidTopologyException.java    # Domain exception
+│   │   │   └── QuorumNotReachedException.java   # Domain exception
+│   │   │
+│   │   └── workflow/                   # Workflow Management bounded context (14 files)
+│   │       ├── Workflow.java           # Aggregate Root
+│   │       ├── Node.java               # Entity (sealed hierarchy)
+│   │       ├── AgentNode.java          # Concrete LLM agent node implementation
+│   │       ├── LoopNode.java           # Iterative node
+│   │       ├── FanoutNode.java         # Parallel fanout
+│   │       ├── ReduceNode.java         # Aggregation node
+│   │       ├── VoteNode.java           # Consensus voting
+│   │       ├── VetoNode.java           # Veto control
+│   │       ├── NodeConstraints.java    # Value Object (record)
+│   │       ├── InputMapping.java       # Value Object (record)
+│   │       ├── OutputSchema.java       # Value Object (record)
+│   │       ├── QualityScore.java       # Value Object (record)
+│   │       ├── ExecutionGraph.java     # DAG structure (record)
+│   │       ├── WorkflowStatus.java     # Enum
+│   │       └── package-info.java       # Bounded context documentation
 │   │
-│   ├── event/                          # Domain events
-│   │   └── WorkflowPublished.java
+│   ├── application/                    # 🚧 Use Cases + Ports (Coming next)
+│   │   ├── port/in/                    # Driving ports (commands/queries)
+│   │   ├── port/out/                   # Driven ports (repositories/messaging)
+│   │   ├── service/                    # Application services
+│   │   └── dto/                        # Data transfer objects
 │   │
-│   └── annotation/                     # DDD annotations
-│       ├── DomainAggregate.java
-│       ├── DomainEntity.java
-│       ├── DomainValueObject.java
-│       ├── FactoryMethod.java
-│       ├── InvariantRule.java
-│       └── BoundedContext.java
+│   └── adapters/                       # Infrastructure & API adapters
+│       ├── infra/                      # ✅ Infrastructure
+│       │   ├── errors/                 # RFC 9457 error handling
+│       │   │   ├── ProblemDetailsHandler.java
+│       │   │   └── ProblemTypes.java
+│       │   ├── http/                   # HTTP filters
+│       │   │   └── CorrelationIdFilter.java
+│       │   ├── AppProps.java           # Configuration properties
+│       │   └── SecurityConfig.java     # Security configuration
+│       │
+│       ├── in/rest/                    # 🚧 REST API (Coming soon)
+│       ├── out/persistence/            # 🚧 PostgreSQL + pgvector
+│       ├── out/messaging/              # 🚧 Kafka event publishing
+│       └── out/ai/                     # 🚧 Spring AI integrations
 │
-├── application/                        # 🚧 Use Cases + Ports (Coming next)
-│   ├── port/in/                        # Driving ports
-│   ├── port/out/                       # Driven ports
-│   ├── service/                        # Application services
-│   └── dto/                            # Data transfer objects
-│
-├── adapters/                           # Infrastructure & API adapters
-│   ├── infra/                          # ✅ Infrastructure
-│   │   ├── errors/                     # RFC 9457 error handling
-│   │   │   ├── ProblemDetailsHandler.java
-│   │   │   └── ProblemTypes.java
-│   │   ├── http/                       # HTTP filters
-│   │   │   └── CorrelationIdFilter.java
-│   │   ├── AppProps.java               # Configuration properties
-│   │   └── SecurityConfig.java         # Security configuration
-│   │
-│   ├── in/rest/                        # 🚧 REST API (Coming soon)
-│   ├── out/persistence/                # 🚧 PostgreSQL + pgvector
-│   ├── out/messaging/                  # 🚧 Kafka event publishing
-│   └── out/ai/                         # 🚧 Spring AI integrations
-│
-└── architecture/                       # Architecture tests
-    ├── DddArchitectureTest.java        # ✅ DDD principles enforcement
-    └── HexagonalArchitectureTest.java  # 🚧 Layer dependency rules
+└── src/test/java/com/multi/            # ✅ 125 TESTS TOTAL
+    ├── adapters/infra/errors/          # Infrastructure tests
+    │   └── ProblemDetailsHandlerTest.java
+    │
+    ├── architecture/                   # Architecture tests (9 tests)
+    │   └── DddArchitectureTest.java        # ✅ DDD principles enforcement
+    │   └── HexagonalArchitectureTest.java  # 🚧 Layer dependency rules
+    │
+    ├── boot/                           # Boot tests
+    │   ├── MultiLlmOrchestratorApplicationTests.java
+    │   ├── TestcontainersConfiguration.java
+    │   └── TestMultiLlmOrchestratorApplication.java
+    │
+    └── domain/                         # Domain unit tests (109 tests)
+        ├── event/                      # 1 test suite
+        │   └── DomainEventTest.java
+        │
+        ├── execution/                  # 1 test suite
+        │   └── ExecutionContextTest.java
+        │
+        ├── optimization/               # 1 test suite
+        │   └── BudgetTest.java
+        │
+        ├── service/                    # 1 test suite
+        │   └── CycleDetectionServiceTest.java
+        │
+        ├── shared/                     # 2 test suites
+        │   ├── DomainExceptionsTest.java
+        │   └── ValueObjectsTest.java
+        │
+        └── workflow/                   # 13 test suites (109 tests total)
+            ├── WorkflowTest.java            
+            ├── AgentNodeTest.java           
+            ├── LoopNodeTest.java            
+            ├── FanoutNodeTest.java          
+            ├── ReduceNodeTest.java          
+            ├── VoteNodeTest.java            
+            ├── VetoNodeTest.java            
+            ├── NodeConstraintsTest.java     
+            ├── InputMappingTest.java        
+            ├── OutputSchemaTest.java        
+            ├── QualityScoreTest.java        
+            ├── ExecutionGraphTest.java      
+            └── NodeTest.java                
 ```
+
+### **Bounded Contexts (5 Contexts)**
+
+| Context                 | Package               | Description                                  | Files    |
+|-------------------------|-----------------------|----------------------------------------------|----------|
+| **Workflow Management** | `domain.workflow`     | Core orchestration logic with DAG validation | 14 files |
+| **Execution**           | `domain.execution`    | Runtime context & execution strategies       | 4 files  |
+| **Consensus**           | `domain.consensus`    | Multi-agent voting mechanisms                | 2 files  |
+| **Optimization**        | `domain.optimization` | Budget management (tokens, costs)            | 4 files  |
+| **Shared Kernel**       | `domain.shared`       | Common abstractions & exceptions             | 10 files |
+
+### **Domain Layer Statistics**
+
+- **Total Files**: 47 production files
+- **Bounded Contexts**: 5 documented contexts
+- **Aggregates**: 1 (Workflow)
+- **Entities**: 6 node types (sealed hierarchy)
+- **Value Objects**: 15+ immutable records
+- **Domain Events**: 5 lifecycle events
+- **Domain Services**: 1 (CycleDetectionService)
+- **Framework Dependencies**: 0 (pure Java)
+
+### **Node Hierarchy (Sealed Classes)**
+
+The system supports **6 node types** for flexible workflow composition:
+
+```java
+public sealed abstract class Node
+  permits AgentNode, LoopNode, FanoutNode, ReduceNode, VoteNode, VetoNode
+```
+
+| Node Type      | Purpose              | Use Case                          |
+|----------------|----------------------|-----------------------------------|
+| **AgentNode**  | Single LLM execution | Simple prompt-response            |
+| **LoopNode**   | Iterative refinement | Self-improvement loops            |
+| **FanoutNode** | Parallel execution   | Scatter pattern (multiple agents) |
+| **ReduceNode** | Result aggregation   | Gather pattern (combine outputs)  |
+| **VoteNode**   | Consensus voting     | Democratic decision making        |
+| **VetoNode**   | Conditional blocking | Quality control gates             |
 
 ---
 
