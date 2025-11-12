@@ -16,7 +16,7 @@ import lombok.*;
  * <p>Launches multiple branches concurrently Uses Virtual Threads for massive parallelism
  */
 @Value
-@EqualsAndHashCode(callSuper = false, onlyExplicitlyIncluded = true)
+@EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public class FanoutNode extends Node {
 
   List<NodeId> branches;

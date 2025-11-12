@@ -12,7 +12,7 @@ import lombok.*;
 
 /** Reduce node: Merge multiple inputs */
 @Value
-@EqualsAndHashCode(callSuper = false, onlyExplicitlyIncluded = true)
+@EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public class ReduceNode extends Node {
 
   String strategy;

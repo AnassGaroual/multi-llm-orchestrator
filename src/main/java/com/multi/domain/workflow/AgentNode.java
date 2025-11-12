@@ -15,7 +15,7 @@ import lombok.*;
  * <p>Security: Provider validation Thread-safe: Immutable
  */
 @Value
-@EqualsAndHashCode(callSuper = false, onlyExplicitlyIncluded = true)
+@EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public class AgentNode extends Node {
 
   String provider;

@@ -15,7 +15,7 @@ import lombok.*;
  * <p>Repeats body nodes for maxIterations Useful for refinement workflows
  */
 @Value
-@EqualsAndHashCode(callSuper = false, onlyExplicitlyIncluded = true)
+@EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public class LoopNode extends Node {
 
   int maxIterations;

@@ -15,7 +15,7 @@ import lombok.*;
  * Veto node: Quality gate Applies validation rules to outputs Triggers retry/fallback on failure
  */
 @Value
-@EqualsAndHashCode(callSuper = false, onlyExplicitlyIncluded = true)
+@EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public class VetoNode extends Node {
 
   Map<String, Object> rules;

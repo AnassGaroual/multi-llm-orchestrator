@@ -16,7 +16,7 @@ import lombok.*;
  * <p>Multiple LLM judges vote on output quality Requires quorum to pass
  */
 @Value
-@EqualsAndHashCode(callSuper = false, onlyExplicitlyIncluded = true)
+@EqualsAndHashCode(callSuper = true, onlyExplicitlyIncluded = true)
 public class VoteNode extends Node {
 
   public record Voter(String provider, String role) {}
