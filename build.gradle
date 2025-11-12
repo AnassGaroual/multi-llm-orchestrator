@@ -58,6 +58,7 @@ dependencies {
   testImplementation 'org.springframework.security:spring-security-test'
   testImplementation 'org.testcontainers:junit-jupiter'
   testImplementation 'org.testcontainers:ollama'
+  testImplementation 'org.reflections:reflections:0.10.2'
   testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
   // JMH benchmarking
